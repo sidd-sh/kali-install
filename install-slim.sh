@@ -37,7 +37,7 @@ rm ~/.zshrc
 stow zshrc
 
 # Because the fzf version is broken in the repos
-wget https://github.com/junegunn/fzf/releases/download/v0.64.0/fzf-0.64.0-linux_amd64.tar.gz -O fzf.tar.gz
+wget https://github.com/junegunn/fzf/releases/download/v0.65.2/fzf-0.65.2-linux_amd64.tar.gz -O fzf.tar.gz
 tar xvzf fzf.tar.gz
 rm fzf.tar.gz
 sudo mv fzf /usr/bin/fzf
@@ -75,4 +75,8 @@ git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
 
 pipx install netexec
 
-pyenv init
+curl -fsSL https://pyenv.run | bash
+
+echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc
+echo '[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc
+echo 'eval "$(pyenv init - zsh)"' >> ~/.zshrc
