@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# `export DEBIAN_FRONTEND` alone doesn't survive sudo's env_reset — pass it
+# directly on the sudo command line every time instead. Route ALL apt calls
+# through this so debconf prompts (like docker.io's data-removal dialog)
+# never show up, on WSL or anywhere else.
+apt_get() {
+  sudo DEBIAN_FRONTEND=noninteractive apt-get \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    "$@"
+}
+
 # =============================================================
 # Interactivity helpers
 # =============================================================
@@ -38,12 +49,12 @@ VIRT=$(systemd-detect-virt 2>/dev/null || echo none)
 # =============================================================
 # 1. System update
 # =============================================================
-sudo apt update && sudo apt upgrade -y
+apt_get update && apt_get upgrade -y
 
 # =============================================================
 # 2. Base CLI packages (always installed — the actual daily-driver toolset)
 # =============================================================
-sudo apt install -y \
+apt_get install -y \
   tre-command duf yq jq aria2 ncdu \
   wget curl git tmux imagemagick xsel flatpak stow \
   jd-gui zsh libfontconfig1-dev apt-transport-https \
@@ -60,7 +71,7 @@ command -v eza &>/dev/null || NEED_EZA_FALLBACK=1
 # 3. Docker (optional — skip if you're relying on Docker Desktop's WSL integration)
 # =============================================================
 if confirm "Install Docker (docker.io) + add $USER to the docker group?" y; then
-  sudo apt install -y docker.io
+  apt_get install -y docker.io
   sudo usermod -aG docker "$USER"
 fi
 
@@ -69,7 +80,7 @@ fi
 # =============================================================
 if [[ "$VIRT" == "vmware" ]]; then
   if confirm "VMware VM detected — install open-vm-tools (+ desktop integration)?" y; then
-    sudo apt install -y open-vm-tools open-vm-tools-desktop
+    apt_get install -y open-vm-tools open-vm-tools-desktop
   fi
 fi
 
@@ -141,7 +152,7 @@ if confirm "Install VS Code?" "$(gui_default)"; then
 fi
 
 if confirm "Install desktop GUI extras (Thunar, Flameshot, Papirus icon theme)?" "$(gui_default)"; then
-  sudo apt install -y thunar flameshot papirus-icon-theme
+  apt_get install -y thunar flameshot papirus-icon-theme
 fi
 
 # =============================================================
@@ -186,11 +197,10 @@ if confirm "Install misc CLI nice-to-haves (termscp, pet, navi, s, termshot, him
 
   go install github.com/zquestz/s@latest
 
- # my fork of termshot
   wget https://github.com/sidd-sh/termshot/releases/latest/download/termshot -O termshot
   chmod +x termshot
   sudo mv termshot /usr/bin/termshot
-  
+
   curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | PREFIX=~/.local sh
 fi
 
@@ -204,7 +214,7 @@ if confirm "Install PowerShell + .NET SDK?" n; then
   wget -q https://packages.microsoft.com/config/debian/"$VERSION_ID"/packages-microsoft-prod.deb
   sudo dpkg -i packages-microsoft-prod.deb
   rm packages-microsoft-prod.deb
-  sudo apt update && sudo apt install -y powershell dotnet-sdk-9.0 aspnetcore-runtime-9.0
+  apt_get update && apt_get install -y powershell dotnet-sdk-9.0 aspnetcore-runtime-9.0
 fi
 
 # =============================================================
