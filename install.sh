@@ -187,9 +187,10 @@ if confirm "Install misc CLI nice-to-haves (termscp, pet, navi, s, termshot, him
   go install github.com/zquestz/s@latest
 
  # my fork of termshot
-wget https://www.github.com/sidd-sh/termshot/latest/termshot
-sudo mv termshot /usr/bin/termshot
-
+  wget https://github.com/sidd-sh/termshot/releases/latest/download/termshot -O termshot
+  chmod +x termshot
+  sudo mv termshot /usr/bin/termshot
+  
   curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | PREFIX=~/.local sh
 fi
 
