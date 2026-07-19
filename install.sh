@@ -1,123 +1,225 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# First upgrade and update to get started
+# =============================================================
+# Interactivity helpers
+# =============================================================
+ASSUME_YES=0
+while getopts ":y" opt; do
+  case "$opt" in
+    y) ASSUME_YES=1 ;;
+    *) echo "Usage: $0 [-y]   (-y accepts every default, non-interactive)"; exit 1 ;;
+  esac
+done
+
+# confirm "question" default_y_or_n -> 0 (yes) or 1 (no)
+confirm() {
+  local prompt="$1" default="${2:-y}" yn
+  if [[ "$ASSUME_YES" == "1" ]]; then
+    [[ "$default" == "y" ]] && return 0 || return 1
+  fi
+  if [[ "$default" == "y" ]]; then
+    read -rp "$prompt [Y/n] " yn; yn=${yn:-y}
+  else
+    read -rp "$prompt [y/N] " yn; yn=${yn:-n}
+  fi
+  [[ "$yn" =~ ^[Yy]$ ]]
+}
+
+IS_WSL=0
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  IS_WSL=1
+  echo "WSL detected — GUI-only components (VS Code, Alacritty, fonts, desktop extras) will default to 'skip'."
+fi
+gui_default() { [[ "$IS_WSL" == "1" ]] && echo n || echo y; }
+
+VIRT=$(systemd-detect-virt 2>/dev/null || echo none)
+
+# =============================================================
+# 1. System update
+# =============================================================
 sudo apt update && sudo apt upgrade -y
 
-# Some basic tools: better df - duf, better wget - aria2, better du - ncdu, tre is better tree
-sudo apt install -y docker.io tre-command duf yq jq aria2 ncdu open-vm-tools open-vm-tools-desktop wget curl git tmux thunar flameshot pipx cargo papirus-icon-theme imagemagick xsel flatpak stow jd-gui rustc zsh libfontconfig1-dev apt-transport-https curl
+# =============================================================
+# 2. Base CLI packages (always installed — the actual daily-driver toolset)
+# =============================================================
+sudo apt install -y \
+  tre-command duf yq jq aria2 ncdu \
+  wget curl git tmux imagemagick xsel flatpak stow \
+  jd-gui zsh libfontconfig1-dev apt-transport-https \
+  ripgrep bat eza fd-find golang-go libfuse2
 
-# Install fonts
-mkdir -p ~/.local/share/fonts/
-wget https://github.com/ryanoasis/nerd-fonts/releases/download/v2.1.0/Iosevka.zip
-wget https://github.com/ryanoasis/nerd-fonts/releases/download/v2.1.0/RobotoMono.zip
-wget https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/Meslo.zip
-unzip Iosevka.zip -d ~/.local/share/fonts/
-unzip RobotoMono.zip -d ~/.local/share/fonts/
-unzip Meslo.zip -d ~/.local/share/fonts
-rm Iosevka.zip RobotoMono.zip Meslo.zip
-fc-cache -fv
+# Ubuntu ships bat/fd under renamed binaries — symlink to the common names
+sudo ln -sf "$(command -v batcat)" /usr/local/bin/bat
+sudo ln -sf "$(command -v fdfind)" /usr/local/bin/fd
 
-# Build nvim from source because of the outdated packages
-curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.appimage
-chmod u+x nvim-linux-x86_64.appimage
-sudo mv nvim-linux-x86_64.appimage /usr/bin/nvim
+NEED_EZA_FALLBACK=0
+command -v eza &>/dev/null || NEED_EZA_FALLBACK=1
 
-# Install rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# =============================================================
+# 3. Docker (optional — skip if you're relying on Docker Desktop's WSL integration)
+# =============================================================
+if confirm "Install Docker (docker.io) + add $USER to the docker group?" y; then
+  sudo apt install -y docker.io
+  sudo usermod -aG docker "$USER"
+fi
+
+# =============================================================
+# 4. VMware guest tools (only offered if a VMware VM is actually detected)
+# =============================================================
+if [[ "$VIRT" == "vmware" ]]; then
+  if confirm "VMware VM detected — install open-vm-tools (+ desktop integration)?" y; then
+    sudo apt install -y open-vm-tools open-vm-tools-desktop
+  fi
+fi
+
+# =============================================================
+# 5. Fonts (skip on WSL — install these on the Windows host for Windows Terminal instead)
+# =============================================================
+if confirm "Install Nerd Fonts (Iosevka, RobotoMono, Meslo)?" "$(gui_default)"; then
+  mkdir -p ~/.local/share/fonts/
+  wget https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Iosevka.zip
+  wget https://github.com/ryanoasis/nerd-fonts/releases/latest/download/RobotoMono.zip
+  wget https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Meslo.zip
+  unzip Iosevka.zip -d ~/.local/share/fonts/
+  unzip RobotoMono.zip -d ~/.local/share/fonts/
+  unzip Meslo.zip -d ~/.local/share/fonts
+  rm Iosevka.zip RobotoMono.zip Meslo.zip
+  fc-cache -fv
+fi
+
+# =============================================================
+# 6. Neovim (built releases are newer than apt's package)
+# =============================================================
+if confirm "Install latest Neovim (official AppImage build)?" y; then
+  curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.appimage
+  chmod u+x nvim-linux-x86_64.appimage
+  sudo mv nvim-linux-x86_64.appimage /usr/bin/nvim
+  # libfuse2 is already installed above, so the AppImage should run without --appimage-extract
+fi
+
+# =============================================================
+# 7. Rust (single source of truth: rustup, not apt's cargo/rustc — always installed,
+#    since sd/dust/eza-fallback/alacritty all depend on it)
+# =============================================================
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 . "$HOME/.cargo/env"
-# If nvim is not working then try this:
-# ./nvim-linux-x86_64.appimage --appimage-extract
-# ./squashfs-root/AppRun --version
-# Optional: exposing nvim globally.
-#sudo mv squashfs-root /
-#sudo ln -s /squashfs-root/AppRun /usr/bin/nvim
 
-# Install my dotfiles and configs
+if [[ "$NEED_EZA_FALLBACK" == "1" ]]; then
+  cargo install eza
+fi
+cargo install sd
+cargo install du-dust   # provides the `dust` binary (better du), not in apt
+
+# =============================================================
+# 8. Dotfiles
+# =============================================================
 cd ~
 git clone https://github.com/sidd-sh/dotfiles
-# Copy a bunch of configurations
 cd ~/dotfiles
 stow tmux
-stow alacritty
 stow nvim
-# Install Oh my zsh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
-git clone --depth 1 -- https://github.com/marlonrichert/zsh-autocomplete.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autocomplete
-git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
-rm ~/.zshrc
-stow zshrc
 
-# Because the fzf version is broken in the repos
-wget https://github.com/junegunn/fzf/releases/download/v0.64.0/fzf-0.64.0-linux_amd64.tar.gz -O fzf.tar.gz
+INSTALL_ALACRITTY=0
+if confirm "Install Alacritty terminal + stow its config?" "$(gui_default)"; then
+  INSTALL_ALACRITTY=1
+  stow alacritty
+fi
+
+if confirm "Install VS Code?" "$(gui_default)"; then
+  wget "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -O vscode.deb
+  sudo dpkg -i ./vscode.deb
+  rm vscode.deb
+fi
+
+if confirm "Install desktop GUI extras (Thunar, Flameshot, Papirus icon theme)?" "$(gui_default)"; then
+  sudo apt install -y thunar flameshot papirus-icon-theme
+fi
+
+# =============================================================
+# 9. Zsh + Oh My Zsh (always — this is the shell config the rest of the dotfiles assume)
+# =============================================================
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+git clone https://github.com/zsh-users/zsh-autosuggestions "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions"
+git clone --depth 1 -- https://github.com/marlonrichert/zsh-autocomplete.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-autocomplete"
+git clone https://github.com/zsh-users/zsh-syntax-highlighting.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting"
+git clone https://github.com/MichaelAquilina/zsh-you-should-use.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/you-should-use"
+git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
+rm -f ~/.zshrc
+cd ~/dotfiles && stow zshrc
+
+git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
+
+# =============================================================
+# 10. fzf (repo version is often stale/broken — always installed, keybinds depend on it)
+# =============================================================
+FZF_URL=$(curl -s https://api.github.com/repos/junegunn/fzf/releases/latest \
+  | jq -r '.assets[] | select(.name | test("linux_amd64\\.tar\\.gz$")) | .browser_download_url')
+wget "$FZF_URL" -O fzf.tar.gz
 tar xvzf fzf.tar.gz
 rm fzf.tar.gz
 sudo mv fzf /usr/bin/fzf
 
-# VSCode
-wget "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64" -O vscode.deb 
-sudo dpkg -i ./vscode.deb
-rm vscode.deb
+curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh   # zoxide: better cd
 
-# Some nice to have tools
-curl --proto '=https' --tlsv1.2 -sSLf "https://git.io/JBhDb" | sh # Termscp is a nice TUI for ftp/SFTP/SMB etc
+# =============================================================
+# 11. Misc CLI nice-to-haves (bundled — say no to skip all of these)
+# =============================================================
+if confirm "Install misc CLI nice-to-haves (termscp, pet, navi, s, termshot, himalaya)?" y; then
+  curl --proto '=https' --tlsv1.2 -sSLf "https://git.io/JBhDb" | sh   # termscp: TUI for ftp/sftp/smb
 
-# Rip grep is just better grep, better cat, better ls
-sudo apt install ripgrep bat eza 
-# Better sed
-cargo install sd
+  PET_URL=$(curl -s https://api.github.com/repos/knqyf263/pet/releases/latest \
+    | jq -r '.assets[] | select(.name | test("linux_amd64\\.deb$")) | .browser_download_url')
+  wget "$PET_URL" -O pet.deb
+  sudo dpkg -i pet.deb
+  rm pet.deb
 
-# Powerlevel 10k for faster terminal
-git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
+  bash <(curl -sL https://raw.githubusercontent.com/denisidoro/navi/master/scripts/install)
 
-# Zoxide for better cd
-curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
+  go install github.com/zquestz/s@latest
 
-# Flatpak is useful so adding the repository
-flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-
-# Pet is for saving command snippets to make life easier from the cmdline
-wget https://github.com/knqyf263/pet/releases/download/v1.0.1/pet_1.0.1_linux_amd64.deb
-sudo dpkg -i pet_1.0.1_linux_amd64.deb
-rm pet_1.0*
-
-# Install powershell and the dotnet to build stuff
-source /etc/os-release
-wget -q https://packages.microsoft.com/config/debian/$VERSION_ID/packages-microsoft-prod.deb
-sudo dpkg -i packages-microsoft-prod.deb
-rm packages-microsoft-prod.deb
-sudo apt update && sudo apt install -y powershell dotnet-sdk-9.0 aspnetcore-runtime-9.0
-
-# Commandline web search
-go install github.com/zquestz/s@latest
-
-# Faster find
-wget https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-musl_10.2.0_amd64.deb
-sudo dpkg -i fd-musl_10.2.0_amd64.deb
-rm fd-musl_10.2.0_amd64.deb
-
-# Nice terminal screenshots
-wget https://github.com/homeport/termshot/releases/download/v0.6.0/termshot_0.6.0_linux_amd64.tar.gz -O termshot.tar.gz
-tar xvzf termshot.tar.gz
-rm termshot.tar.gz LICENSE README.md
+ # my fork of termshot
+wget https://www.github.com/sidd-sh/termshot/latest/termshot
 sudo mv termshot /usr/bin/termshot
 
-# Nice command line email client for testing
-curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | PREFIX=~/.local sh
+  curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | PREFIX=~/.local sh
+fi
 
-# Navigable cheat sheet
-bash <(curl -sL https://raw.githubusercontent.com/denisidoro/navi/master/scripts/install)
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+# =============================================================
+# 12. PowerShell + .NET (optional — niche, off by default)
+# =============================================================
+if confirm "Install PowerShell + .NET SDK?" n; then
+  source /etc/os-release
+  wget -q https://packages.microsoft.com/config/debian/"$VERSION_ID"/packages-microsoft-prod.deb
+  sudo dpkg -i packages-microsoft-prod.deb
+  rm packages-microsoft-prod.deb
+  sudo apt update && sudo apt install -y powershell dotnet-sdk-9.0 aspnetcore-runtime-9.0
+fi
+
+# =============================================================
+# 13. uv (replaces pipx entirely) + Python-based security tooling
+# =============================================================
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"   # so `uv` is usable for the rest of this script
+
+uv python install 3.11 3.12
+
+if confirm "Install AD security tooling via uv (NetExec, BloodyAD, PowerView.py)?" y; then
+  uv tool install git+https://github.com/Pennyw0rth/NetExec
+  uv tool install bloodyAD
+  uv tool install git+https://github.com/aniqfakhrul/powerview.py
+fi
+
+# =============================================================
+# 14. Alacritty binary itself (only if you opted into it above)
+# =============================================================
+if [[ "$INSTALL_ALACRITTY" == "1" ]]; then
+  cargo install alacritty
+fi
 
 chsh -s /usr/bin/zsh
 
-# Download TPM just in to download plugins
-git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
-
-# Install latest alacritty build
-cargo install alacritty
-
-# You should use for any aliases I missed
-git clone https://github.com/MichaelAquilina/zsh-you-should-use.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/you-should-use
-# Pull the latest version of netexec
-pipx install netexec
-
+echo ""
+echo "Done. Log out and back in (or reboot) to pick up the docker group and default shell change."
