@@ -92,10 +92,18 @@ fi
 # 6. Neovim (built releases are newer than apt's package)
 # =============================================================
 if confirm "Install latest Neovim (official AppImage build)?" y; then
-  curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.appimage
-  chmod u+x nvim-linux-x86_64.appimage
-  sudo mv nvim-linux-x86_64.appimage /usr/bin/nvim
-  # libfuse2 is already installed above, so the AppImage should run without --appimage-extract
+  NVIM_TMPDIR=$(mktemp -d)
+  (
+    cd "$NVIM_TMPDIR"
+    curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.appimage
+    chmod u+x nvim-linux-x86_64.appimage
+    ./nvim-linux-x86_64.appimage --appimage-extract >/dev/null
+    sudo rm -rf /opt/nvim
+    sudo mv squashfs-root /opt/nvim
+  )
+  rm -rf "$NVIM_TMPDIR"
+  sudo ln -sf /opt/nvim/AppRun /usr/bin/nvim
+  # extracted once at install time, so no FUSE/libfuse2 needed at runtime — works on Kali/WSL too
 fi
 
 # =============================================================
