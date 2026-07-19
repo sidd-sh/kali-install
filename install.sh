@@ -164,7 +164,14 @@ git clone --depth 1 -- https://github.com/marlonrichert/zsh-autocomplete.git "${
 git clone https://github.com/zsh-users/zsh-syntax-highlighting.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting"
 git clone https://github.com/MichaelAquilina/zsh-you-should-use.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/you-should-use"
 git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
-rm -f ~/.zshrc
+mkdir -p ~/.tmux/plugins/catppuccin
+git clone -b v2.3.0 https://github.com/catppuccin/tmux.git ~/.tmux/plugins/catppuccin/tmux
+
+cd ~
+for f in .zshrc .zshenv .zprofile; do
+  [[ -e "$f" && ! -L "$f" ]] && mv "$f" "$f.bak"
+done
+
 cd ~/dotfiles && stow zsh
 
 git clone https://github.com/tmux-plugins/tpm ~/.tmux/plugins/tpm
@@ -239,6 +246,8 @@ if [[ "$INSTALL_ALACRITTY" == "1" ]]; then
 fi
 
 chsh -s /usr/bin/zsh
+
+~/.tmux/plugins/tpm/bin/install_plugins
 
 echo ""
 echo "Done. Log out and back in (or reboot) to pick up the docker group and default shell change."
