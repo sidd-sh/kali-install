@@ -58,7 +58,7 @@ apt_get install -y \
   tre-command duf yq jq aria2 ncdu \
   wget curl git tmux imagemagick xsel flatpak stow \
   jd-gui zsh libfontconfig1-dev apt-transport-https \
-  ripgrep bat eza fd-find golang-go
+  ripgrep bat eza fd-find golang-go libkrb5-dev
 
 # Ubuntu ships bat/fd under renamed binaries — symlink to the common names
 sudo ln -sf "$(command -v batcat)" /usr/local/bin/bat
